@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
-import { sql } from './db';
+import { sql } from '../server/db';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);

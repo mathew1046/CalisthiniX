@@ -57,6 +57,7 @@ export const journalEntries = pgTable("journal_entries", {
   energyLevel: integer("energy_level").notNull(),
   mood: integer("mood").notNull(),
   notes: text("notes"),
+  photoUrl: text("photo_url"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
