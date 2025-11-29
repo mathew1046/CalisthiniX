@@ -1,13 +1,16 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, Clock, Info, Plus, CheckCircle2, Play, Square } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { WorkoutCalendar } from "@/components/workout-calendar";
+import { ArrowLeft, Clock, Info, Plus, CheckCircle2, Play, Square, CalendarDays, Dumbbell, X } from "lucide-react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Link, useLocation } from "wouter";
 import { ExercisePicker } from "@/components/exercise-picker";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { format, isSameDay } from "date-fns";
 
 interface WorkoutSet {
   reps: number;
@@ -36,6 +39,67 @@ export default function Workout() {
   const [exercises, setExercises] = useState<WorkoutExercise[]>([]);
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [workoutId, setWorkoutId] = useState<number | null>(null);
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
+  const [selectedDayWorkout, setSelectedDayWorkout] = useState<any>(null);
+
+  // Fetch all workouts for history calendar
+  const { data: allWorkouts } = useQuery<any[]>({
+    queryKey: ["/api/workouts/history"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/workouts?limit=100");
+      return res.json();
+    }
+  });
+
+  // State to hold all workouts for a selected day (multiple workouts per day)
+  const [selectedDayWorkouts, setSelectedDayWorkouts] = useState<any[]>([]);
+
+  // Group workouts by date
+  const workoutsByDate = useMemo(() => {
+    if (!allWorkouts) return new Map<string, any[]>();
+    const map = new Map<string, any[]>();
+    allWorkouts.forEach(w => {
+      const dateKey = format(new Date(w.date), 'yyyy-MM-dd');
+      if (!map.has(dateKey)) {
+        map.set(dateKey, []);
+      }
+      map.get(dateKey)!.push(w);
+    });
+    return map;
+  }, [allWorkouts]);
+
+  // Handle date selection to show workout details (supports multiple workouts per day)
+  const handleDateSelect = async (date: Date | undefined) => {
+    setSelectedDate(date);
+    if (!date || !allWorkouts) {
+      setSelectedDayWorkouts([]);
+      setSelectedDayWorkout(null);
+      return;
+    }
+    
+    // Find all workouts for this date
+    const dateKey = format(date, 'yyyy-MM-dd');
+    const dayWorkouts = workoutsByDate.get(dateKey) || [];
+    
+    if (dayWorkouts.length > 0) {
+      // Fetch full workout details with exercises for all workouts
+      const fullWorkouts = await Promise.all(
+        dayWorkouts.map(async (workout) => {
+          try {
+            const res = await apiRequest("GET", `/api/workouts/${workout.id}`);
+            return await res.json();
+          } catch (error) {
+            return workout;
+          }
+        })
+      );
+      setSelectedDayWorkouts(fullWorkouts);
+      setSelectedDayWorkout(fullWorkouts[0]); // Keep for backwards compatibility
+    } else {
+      setSelectedDayWorkouts([]);
+      setSelectedDayWorkout(null);
+    }
+  };
 
   // Check for active workout from template (via sessionStorage)
   const [activeWorkoutId] = useState(() => {
@@ -387,6 +451,151 @@ export default function Workout() {
         onOpenChange={setIsPickerOpen}
         onSelect={addExercise}
       />
+
+      {/* Workout History Section */}
+      <div className="mt-12 border-t border-border pt-8">
+        <h2 className="text-xl sm:text-2xl font-heading font-bold uppercase flex items-center gap-2 mb-6">
+          <CalendarDays className="w-5 h-5 sm:w-6 sm:h-6 text-primary" /> Workout History
+        </h2>
+        
+        <div className="space-y-6">
+          {/* Large Custom Calendar */}
+          <Card className="bg-card border-border">
+            <CardContent className="p-4 sm:p-6 md:p-8">
+              <WorkoutCalendar
+                workouts={allWorkouts || []}
+                selectedDate={selectedDate}
+                onDateSelect={(date) => handleDateSelect(date)}
+              />
+            </CardContent>
+          </Card>
+
+          {/* Selected Day Details - Shows ALL workouts for that day */}
+          {selectedDate && (
+            <Card className="bg-card border-border">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg sm:text-xl font-heading uppercase flex items-center gap-2">
+                  <Dumbbell className="w-5 h-5 text-primary" />
+                  {format(selectedDate, "EEEE, MMMM d, yyyy")}
+                </CardTitle>
+                {selectedDayWorkouts.length > 1 && (
+                  <p className="text-sm text-primary font-semibold mt-1">
+                    🔥 {selectedDayWorkouts.length} workouts on this day!
+                  </p>
+                )}
+              </CardHeader>
+              <CardContent className="max-h-[600px] overflow-y-auto">
+                {selectedDayWorkouts.length > 0 ? (
+                  <div className="space-y-6">
+                    {selectedDayWorkouts.map((workout, workoutIdx) => (
+                      <div key={workout.id || workoutIdx} className={cn(
+                        "space-y-4",
+                        workoutIdx > 0 && "pt-4 border-t border-border"
+                      )}>
+                        {/* Workout Header */}
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <h4 className="font-bold text-foreground text-base">{workout.name}</h4>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {workout.duration ? `Duration: ${Math.floor(workout.duration / 60)}min ${workout.duration % 60}s` : "Duration: N/A"}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-sm font-semibold text-primary">
+                              {workout.totalVolume || 0} kg
+                            </span>
+                            <p className="text-xs text-muted-foreground">Total Volume</p>
+                          </div>
+                        </div>
+                        
+                        {/* Exercises with detailed sets */}
+                        {workout.exercises && workout.exercises.length > 0 ? (
+                          <div className="space-y-3">
+                            <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">
+                              Exercises ({workout.exercises.length})
+                            </p>
+                            {workout.exercises.map((ex: any, idx: number) => (
+                              <div key={idx} className="bg-secondary/30 p-3 rounded-lg border border-border/50">
+                                <div className="flex items-center justify-between mb-2">
+                                  <p className="font-semibold text-sm text-foreground">{ex.name}</p>
+                                  <span className="text-xs text-muted-foreground">
+                                    {Array.isArray(ex.sets) ? ex.sets.length : 0} sets
+                                  </span>
+                                </div>
+                                
+                                {/* Detailed set info */}
+                                {Array.isArray(ex.sets) && ex.sets.length > 0 && (
+                                  <div className="space-y-1.5">
+                                    <div className="grid grid-cols-4 gap-2 text-xs text-muted-foreground font-medium px-2">
+                                      <span>Set</span>
+                                      <span>Reps</span>
+                                      <span>Weight</span>
+                                      <span>RPE</span>
+                                    </div>
+                                    {ex.sets.map((set: any, setIdx: number) => (
+                                      <div 
+                                        key={setIdx} 
+                                        className={cn(
+                                          "grid grid-cols-4 gap-2 text-sm px-2 py-1.5 rounded-md",
+                                          set.completed 
+                                            ? "bg-primary/10 border border-primary/30" 
+                                            : "bg-background/50"
+                                        )}
+                                      >
+                                        <span className="text-muted-foreground">{setIdx + 1}</span>
+                                        <span className="font-medium">{set.reps || 0}</span>
+                                        <span>{set.weight ? `${set.weight}kg` : "-"}</span>
+                                        <span className={cn(
+                                          "font-medium",
+                                          set.rpe >= 9 ? "text-red-500" :
+                                          set.rpe >= 7 ? "text-yellow-500" : "text-green-500"
+                                        )}>
+                                          {set.rpe || "-"}
+                                        </span>
+                                      </div>
+                                    ))}
+                                    
+                                    {/* Exercise Summary */}
+                                    <div className="flex justify-between items-center pt-2 mt-2 border-t border-border/50 text-xs">
+                                      <span className="text-muted-foreground">
+                                        Total: {ex.sets.reduce((acc: number, s: any) => acc + (s.reps || 0), 0)} reps
+                                      </span>
+                                      <span className="text-primary font-medium">
+                                        Volume: {ex.sets.reduce((acc: number, s: any) => 
+                                          acc + ((s.reps || 0) * (s.weight || 0)), 0
+                                        )} kg
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground italic">No exercises recorded</p>
+                        )}
+
+                        {workout.notes && (
+                          <div className="bg-secondary/20 p-3 rounded-lg">
+                            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1 font-semibold">Notes</p>
+                            <p className="text-sm">{workout.notes}</p>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <X className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-50" />
+                    <p className="text-muted-foreground text-sm">No workout recorded on this day</p>
+                    <p className="text-xs text-muted-foreground mt-1">Start a new workout to log your progress!</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
