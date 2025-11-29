@@ -54,7 +54,7 @@ export function useMe() {
   return {
     user,
     isLoading,
-    error: error instanceof Error ? error.message : String(error),
+    error: error ? (error instanceof Error ? error.message : String(error)) : null,
     refetch,
   };
 }

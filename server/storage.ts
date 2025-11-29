@@ -1,5 +1,6 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import "dotenv/config"; // Ensure env vars are loaded
 import { 
   users, 
   workouts, 
@@ -24,6 +25,9 @@ let queryClient: any;
 let db: any;
 
 try {
+  if (!process.env.DATABASE_URL) {
+    console.warn("⚠️ DATABASE_URL is not defined. Using default postgres connection (may fail).");
+  }
   queryClient = postgres(process.env.DATABASE_URL!);
   db = drizzle(queryClient);
 } catch (error) {
