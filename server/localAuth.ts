@@ -1,6 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import session from "express-session";
 import MemoryStore from "memorystore";
+import { storage } from "./storage";
 
 // For development only - create an in-memory mock user
 const mockUser = {
@@ -9,6 +10,9 @@ const mockUser = {
   displayName: "Developer",
   picture: "https://api.dicebear.com/7.x/avataaars/svg?seed=dev",
 };
+
+// Flag to track if we've initialized the dev user in DB
+let devUserInitialized = false;
 
 // Extend Express Request type to include user
 declare global {
@@ -45,7 +49,24 @@ export function setupLocalAuth(app: Express) {
   );
 
   // Middleware to automatically set mock user
-  app.use((req: Request, res: Response, next: NextFunction) => {
+  app.use(async (req: Request, res: Response, next: NextFunction) => {
+    // Ensure the dev user exists in the database (run once)
+    if (!devUserInitialized) {
+      try {
+        await storage.upsertUser({
+          id: mockUser.id,
+          email: mockUser.email,
+          firstName: "Developer",
+          lastName: "User",
+          profileImageUrl: mockUser.picture,
+        });
+        devUserInitialized = true;
+        console.log("Local dev user initialized in database");
+      } catch (error) {
+        console.error("Failed to initialize dev user:", error);
+      }
+    }
+
     if (!req.session.user) {
       req.session.user = mockUser;
     }

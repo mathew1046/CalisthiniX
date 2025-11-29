@@ -19,6 +19,53 @@ function getUserId(req: any): string {
   return req.user?.id || req.user?.claims?.sub || "";
 }
 
+// ============ Workout Template Types ============
+
+interface WorkoutTemplateExerciseInput {
+  exerciseId: string;
+  orderIndex: number;
+  defaultSets?: number | null;
+  defaultReps?: number | null;
+  defaultRestSeconds?: number | null;
+  notes?: string | null;
+}
+
+interface WorkoutTemplateExercise {
+  id: string;
+  exerciseId: string;
+  orderIndex: number;
+  defaultSets: number | null;
+  defaultReps: number | null;
+  defaultRestSeconds: number | null;
+  notes: string | null;
+  exercise: {
+    id: string;
+    name: string;
+    slug: string;
+    category: string;
+    difficulty: string;
+  };
+}
+
+interface WorkoutTemplate {
+  id: string;
+  name: string;
+  description: string | null;
+  difficulty: string | null;
+  category: string | null;
+  createdAt: string;
+  exercises: WorkoutTemplateExercise[];
+}
+
+interface WorkoutTemplateListItem {
+  id: string;
+  name: string;
+  description: string | null;
+  difficulty: string | null;
+  category: string | null;
+  createdAt: string;
+}
+
 
 export async function registerRoutes(
   httpServer: Server,
@@ -351,6 +398,391 @@ export async function registerRoutes(
       res.json(exercise);
     } catch (error) {
       console.error("Error fetching exercise:", error);
+      res.status(500).json({ error: "Internal Server Error" });
+    }
+  });
+
+  // ============ Workout Template Routes ============
+
+  // GET /api/workout-templates - List all templates for current user
+  app.get("/api/workout-templates", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const { difficulty, category } = req.query;
+
+      const conditions = [sql`(wt.user_id = ${userId} OR wt.is_public = TRUE)`];
+
+      if (difficulty) {
+        conditions.push(sql`wt.difficulty = ${difficulty as string}`);
+      }
+      if (category) {
+        conditions.push(sql`wt.category = ${category as string}`);
+      }
+
+      const whereClause = conditions.reduce((acc, curr) => sql`${acc} AND ${curr}`);
+
+      // Include isPublic, isOwner, and exerciseCount in the response
+      const templates = await sql`
+        SELECT 
+          wt.id, 
+          wt.name, 
+          wt.description, 
+          wt.difficulty, 
+          wt.category, 
+          wt.created_at as "createdAt",
+          wt.is_public as "isPublic",
+          (wt.user_id = ${userId}) as "isOwner",
+          COALESCE(
+            (SELECT COUNT(*) FROM workout_template_exercises wte WHERE wte.template_id = wt.id),
+            0
+          )::int as "exerciseCount"
+        FROM workout_templates wt
+        WHERE ${whereClause}
+        ORDER BY wt.is_public DESC, wt.created_at DESC
+      `;
+
+      res.json(templates);
+    } catch (error) {
+      console.error("Error fetching workout templates:", error);
+      res.status(500).json({ error: "Internal Server Error" });
+    }
+  });
+
+  // GET /api/workout-templates/:id - Get single template with exercises
+  app.get("/api/workout-templates/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const { id } = req.params;
+
+      // Get the template with ownership info
+      const [template] = await sql`
+        SELECT 
+          id, 
+          name, 
+          description, 
+          difficulty, 
+          category, 
+          created_at as "createdAt",
+          is_public as "isPublic",
+          (user_id = ${userId}) as "isOwner"
+        FROM workout_templates
+        WHERE id = ${id} AND (user_id = ${userId} OR is_public = TRUE)
+      `;
+
+      if (!template) {
+        return res.status(404).json({ error: "Workout template not found" });
+      }
+
+      // Get the template exercises with exercise details
+      const exercises = await sql`
+        SELECT 
+          wte.id,
+          wte.exercise_id as "exerciseId",
+          wte.order_index as "orderIndex",
+          wte.default_sets as "defaultSets",
+          wte.default_reps as "defaultReps",
+          wte.default_rest_seconds as "defaultRestSeconds",
+          wte.notes,
+          json_build_object(
+            'id', el.id,
+            'name', el.name,
+            'slug', el.slug,
+            'category', el.category,
+            'difficulty', el.difficulty
+          ) as exercise
+        FROM workout_template_exercises wte
+        JOIN exercise_library el ON el.id = wte.exercise_id
+        WHERE wte.template_id = ${id}
+        ORDER BY wte.order_index ASC
+      `;
+
+      const response: WorkoutTemplate = {
+        ...template,
+        exercises: exercises as WorkoutTemplateExercise[]
+      };
+
+      res.json(response);
+    } catch (error) {
+      console.error("Error fetching workout template:", error);
+      res.status(500).json({ error: "Internal Server Error" });
+    }
+  });
+
+  // POST /api/workout-templates - Create a new template
+  app.post("/api/workout-templates", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const { name, description, difficulty, category, exercises } = req.body;
+
+      if (!name || typeof name !== "string" || name.trim() === "") {
+        return res.status(400).json({ error: "Name is required" });
+      }
+
+      // Validate difficulty if provided
+      if (difficulty && !["beginner", "intermediate", "advanced"].includes(difficulty)) {
+        return res.status(400).json({ error: "Invalid difficulty value" });
+      }
+
+      // Insert the template
+      const [newTemplate] = await sql`
+        INSERT INTO workout_templates (user_id, name, description, difficulty, category)
+        VALUES (${userId}, ${name}, ${description || null}, ${difficulty || null}, ${category || null})
+        RETURNING id, name, description, difficulty, category, created_at as "createdAt"
+      `;
+
+      // Insert template exercises if provided
+      if (exercises && Array.isArray(exercises) && exercises.length > 0) {
+        for (const ex of exercises as WorkoutTemplateExerciseInput[]) {
+          await sql`
+            INSERT INTO workout_template_exercises (template_id, exercise_id, order_index, default_sets, default_reps, default_rest_seconds, notes)
+            VALUES (
+              ${newTemplate.id},
+              ${ex.exerciseId},
+              ${ex.orderIndex},
+              ${ex.defaultSets ?? null},
+              ${ex.defaultReps ?? null},
+              ${ex.defaultRestSeconds ?? null},
+              ${ex.notes ?? null}
+            )
+          `;
+        }
+      }
+
+      res.status(201).json({ id: newTemplate.id });
+    } catch (error: any) {
+      console.error("Error creating workout template:", error);
+      if (error?.code === "23503") {
+        return res.status(400).json({ error: "Invalid exercise_id reference" });
+      }
+      res.status(500).json({ error: "Internal Server Error" });
+    }
+  });
+
+  // PUT /api/workout-templates/:id - Update a template
+  app.put("/api/workout-templates/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const { id } = req.params;
+      const { name, description, difficulty, category, exercises } = req.body;
+
+      // Verify ownership
+      const [existingTemplate] = await sql`
+        SELECT id FROM workout_templates WHERE id = ${id} AND user_id = ${userId}
+      `;
+
+      if (!existingTemplate) {
+        return res.status(404).json({ error: "Workout template not found or not authorized" });
+      }
+
+      // Validate difficulty if provided
+      if (difficulty && !["beginner", "intermediate", "advanced"].includes(difficulty)) {
+        return res.status(400).json({ error: "Invalid difficulty value" });
+      }
+
+      // Update the template metadata
+      const [updatedTemplate] = await sql`
+        UPDATE workout_templates
+        SET 
+          name = COALESCE(${name || null}, name),
+          description = ${description ?? null},
+          difficulty = ${difficulty ?? null},
+          category = ${category ?? null}
+        WHERE id = ${id}
+        RETURNING id, name, description, difficulty, category, created_at as "createdAt"
+      `;
+
+      // If exercises array is provided, delete existing and re-insert
+      if (exercises && Array.isArray(exercises)) {
+        // Delete existing exercises
+        await sql`DELETE FROM workout_template_exercises WHERE template_id = ${id}`;
+
+        // Insert new exercises
+        for (const ex of exercises as WorkoutTemplateExerciseInput[]) {
+          await sql`
+            INSERT INTO workout_template_exercises (template_id, exercise_id, order_index, default_sets, default_reps, default_rest_seconds, notes)
+            VALUES (
+              ${id},
+              ${ex.exerciseId},
+              ${ex.orderIndex},
+              ${ex.defaultSets ?? null},
+              ${ex.defaultReps ?? null},
+              ${ex.defaultRestSeconds ?? null},
+              ${ex.notes ?? null}
+            )
+          `;
+        }
+      }
+
+      res.json(updatedTemplate);
+    } catch (error: any) {
+      console.error("Error updating workout template:", error);
+      if (error?.code === "23503") {
+        return res.status(400).json({ error: "Invalid exercise_id reference" });
+      }
+      res.status(500).json({ error: "Internal Server Error" });
+    }
+  });
+
+  // DELETE /api/workout-templates/:id - Delete a template
+  app.delete("/api/workout-templates/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const { id } = req.params;
+
+      // Verify ownership and delete
+      const result = await sql`
+        DELETE FROM workout_templates WHERE id = ${id} AND user_id = ${userId}
+        RETURNING id
+      `;
+
+      if (result.length === 0) {
+        return res.status(404).json({ error: "Workout template not found or not authorized" });
+      }
+
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting workout template:", error);
+      res.status(500).json({ error: "Internal Server Error" });
+    }
+  });
+
+  // POST /api/workout-templates/:id/duplicate - Duplicate a template to user's templates
+  app.post("/api/workout-templates/:id/duplicate", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const { id } = req.params;
+
+      // Get the source template (must be accessible - either owned or public)
+      const [sourceTemplate] = await sql`
+        SELECT id, name, description, difficulty, category
+        FROM workout_templates
+        WHERE id = ${id} AND (user_id = ${userId} OR is_public = TRUE)
+      `;
+
+      if (!sourceTemplate) {
+        return res.status(404).json({ error: "Template not found" });
+      }
+
+      // Get the source template exercises
+      const sourceExercises = await sql`
+        SELECT exercise_id, order_index, default_sets, default_reps, default_rest_seconds, notes
+        FROM workout_template_exercises
+        WHERE template_id = ${id}
+        ORDER BY order_index ASC
+      `;
+
+      // Create a new template for the user (not public, owned by user)
+      const [newTemplate] = await sql`
+        INSERT INTO workout_templates (user_id, name, description, difficulty, category, is_public)
+        VALUES (
+          ${userId}, 
+          ${sourceTemplate.name + ' (Copy)'}, 
+          ${sourceTemplate.description}, 
+          ${sourceTemplate.difficulty}, 
+          ${sourceTemplate.category},
+          FALSE
+        )
+        RETURNING id, name, description, difficulty, category, created_at as "createdAt", is_public as "isPublic"
+      `;
+
+      // Copy all exercises to the new template
+      for (const ex of sourceExercises) {
+        await sql`
+          INSERT INTO workout_template_exercises (template_id, exercise_id, order_index, default_sets, default_reps, default_rest_seconds, notes)
+          VALUES (
+            ${newTemplate.id},
+            ${ex.exercise_id},
+            ${ex.order_index},
+            ${ex.default_sets},
+            ${ex.default_reps},
+            ${ex.default_rest_seconds},
+            ${ex.notes}
+          )
+        `;
+      }
+
+      res.status(201).json({ 
+        id: newTemplate.id,
+        name: newTemplate.name,
+        description: newTemplate.description,
+        difficulty: newTemplate.difficulty,
+        category: newTemplate.category,
+        createdAt: newTemplate.createdAt,
+        isPublic: newTemplate.isPublic,
+        isOwner: true,
+        exerciseCount: sourceExercises.length
+      });
+    } catch (error) {
+      console.error("Error duplicating workout template:", error);
+      res.status(500).json({ error: "Internal Server Error" });
+    }
+  });
+
+  // POST /api/workout-templates/:id/start - Start a workout from a template
+  app.post("/api/workout-templates/:id/start", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const { id } = req.params;
+
+      // Get the template
+      const [template] = await sql`
+        SELECT id, name, description
+        FROM workout_templates
+        WHERE id = ${id} AND (user_id = ${userId} OR is_public = TRUE)
+      `;
+
+      if (!template) {
+        return res.status(404).json({ error: "Workout template not found" });
+      }
+
+      // Get template exercises
+      const templateExercises = await sql`
+        SELECT 
+          wte.order_index,
+          wte.default_sets,
+          wte.default_reps,
+          wte.notes,
+          el.name as exercise_name
+        FROM workout_template_exercises wte
+        JOIN exercise_library el ON el.id = wte.exercise_id
+        WHERE wte.template_id = ${id}
+        ORDER BY wte.order_index ASC
+      `;
+
+      // Create a new workout using the existing workouts table (Drizzle schema uses serial id)
+      const workout = await storage.createWorkout({
+        userId,
+        name: template.name,
+        date: new Date(),
+        duration: null,
+        totalVolume: 0,
+        notes: template.description || null,
+      });
+
+      // Create exercises for the workout using the existing exercises table
+      for (const templateEx of templateExercises) {
+        // Build default sets array based on template
+        const defaultSetsCount = templateEx.default_sets || 3;
+        const defaultRepsCount = templateEx.default_reps || 10;
+        const setsArray = Array.from({ length: defaultSetsCount }, () => ({
+          reps: defaultRepsCount,
+          weight: 0,
+          rpe: 7
+        }));
+
+        await storage.createExercise({
+          workoutId: workout.id,
+          name: templateEx.exercise_name,
+          sets: setsArray,
+          order: templateEx.order_index,
+        });
+      }
+
+      // Return the created workout
+      const exercises = await storage.getExercisesByWorkout(workout.id);
+      res.status(201).json({ ...workout, exercises });
+    } catch (error) {
+      console.error("Error starting workout from template:", error);
       res.status(500).json({ error: "Internal Server Error" });
     }
   });
