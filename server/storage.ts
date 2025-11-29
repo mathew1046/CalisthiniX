@@ -20,8 +20,15 @@ import {
 } from "@shared/schema";
 import { eq, desc, and, gte, lte } from "drizzle-orm";
 
-const queryClient = postgres(process.env.DATABASE_URL!);
-const db = drizzle(queryClient);
+let queryClient: any;
+let db: any;
+
+try {
+  queryClient = postgres(process.env.DATABASE_URL!);
+  db = drizzle(queryClient);
+} catch (error) {
+  console.error("Database connection error:", error);
+}
 
 export interface IStorage {
   // Users (Replit Auth required methods)
