@@ -6,9 +6,28 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CalendarDays, Camera, Settings, Share2 } from "lucide-react";
 import { useMe } from "@/hooks/useMe";
+import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { format } from "date-fns";
+
+interface Workout {
+  id: number;
+  name: string;
+  date: string;
+  duration: number;
+  totalVolume: number;
+}
 
 export default function Profile() {
   const { user, isLoading, error } = useMe();
+
+  const { data: workouts, isLoading: isLoadingWorkouts } = useQuery<Workout[]>({
+    queryKey: ["/api/workouts"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/workouts?limit=5");
+      return res.json();
+    }
+  });
 
   // Get initials for avatar
   const getInitials = () => {
@@ -27,6 +46,15 @@ export default function Profile() {
 
   // Convert weight to lbs if needed (assuming database stores in kg)
   const weightInLbs = user?.weight ? Math.round(user.weight * 2.20462) : 0;
+
+  const formatDuration = (seconds: number) => {
+    if (!seconds && seconds !== 0) return "0 min";
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes} min`;
+    const hours = Math.floor(minutes / 60);
+    const remainingMins = minutes % 60;
+    return `${hours}h ${remainingMins}m`;
+  };
 
   if (error) {
     return (
@@ -157,34 +185,39 @@ export default function Profile() {
         {/* Recent History */}
         <div className="space-y-6">
           <h2 className="text-xl font-heading font-bold uppercase">Recent History</h2>
-          {isLoading ? (
+          {isLoadingWorkouts ? (
             <div className="space-y-3">
               {[1, 2, 3].map((item) => (
                 <Skeleton key={item} className="h-20 w-full rounded-xl" />
               ))}
             </div>
-          ) : (
+          ) : workouts && workouts.length > 0 ? (
             <div className="space-y-4">
-              {[1, 2, 3].map((item) => (
+              {workouts.map((workout) => (
                 <div
-                  key={item}
+                  key={workout.id}
                   className="bg-card border border-border p-4 rounded-xl flex items-center gap-4 hover:border-primary/30 transition-colors cursor-pointer"
                 >
                   <div className="w-12 h-12 rounded bg-secondary flex items-col flex-col items-center justify-center text-center">
-                    <span className="text-[10px] text-muted-foreground uppercase">NOV</span>
-                    <span className="text-lg font-bold leading-none">{28 - item}</span>
+                    <span className="text-[10px] text-muted-foreground uppercase">
+                      {format(new Date(workout.date), "MMM")}
+                    </span>
+                    <span className="text-lg font-bold leading-none">
+                      {format(new Date(workout.date), "d")}
+                    </span>
                   </div>
                   <div className="flex-1">
-                    <h4 className="font-bold text-foreground">Upper Body Power</h4>
-                    <p className="text-xs text-muted-foreground">45 min • 12,450 kg Volume</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-xs font-bold px-2 py-1 bg-primary/10 text-primary rounded">
-                      PR
-                    </span>
+                    <h4 className="font-bold text-foreground">{workout.name}</h4>
+                    <p className="text-xs text-muted-foreground">
+                      {formatDuration(workout.duration)} • {workout.totalVolume} kg Volume
+                    </p>
                   </div>
                 </div>
               ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 border border-dashed border-border rounded-xl">
+              <p className="text-muted-foreground">No workouts yet.</p>
             </div>
           )}
         </div>
