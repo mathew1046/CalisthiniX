@@ -1,9 +1,10 @@
 # CalistheniX - AI Agent Guide
 
-## ⚠️ CRITICAL Git Rules
+## ⚠️ CRITICAL Git Rules **MOST IMPORTANT**
 - Commit AFTER each complete feature: `git add . && git commit -m "feat: description"`
 - Use "feat:", "fix:", "refactor:" prefixes
 - Test before committing - never commit broken code
+- Donot commit greated than 150-200 at once. commit periodically
 
 ## 🤖 AI Agent Guidelines
 **Read this entire file first. Check integration status before starting.**

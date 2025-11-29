@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Home, Map, Dumbbell, MessageSquare, User, Menu, LogOut, ListChecks, LayoutTemplate } from "lucide-react";
+import { Home, Map, Dumbbell, MessageSquare, User, Menu, LogOut, ListChecks, Book, LayoutTemplate } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -15,6 +15,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { href: "/workout", icon: Dumbbell, label: "Workout" },
     { href: "/templates", icon: LayoutTemplate, label: "Templates" },
     { href: "/exercises", icon: ListChecks, label: "Exercises" },
+    { href: "/journal", icon: Book, label: "Daily Journal" },
     { href: "/coach", icon: MessageSquare, label: "Coach" },
     { href: "/profile", icon: User, label: "Profile" },
   ];

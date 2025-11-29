@@ -67,10 +67,36 @@ interface WorkoutTemplateListItem {
 }
 
 
+import multer from "multer";
+import path from "path";
+import fs from "fs";
+import express from "express";
+
+// Configure multer for file uploads
+const uploadDir = path.join(process.cwd(), "uploads");
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const storageConfig = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  },
+});
+
+const upload = multer({ storage: storageConfig });
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+
+  // Serve uploaded files statically
+  app.use("/uploads", express.static(uploadDir));
 
   // Setup Local Auth (for development)
   setupLocalAuth(app);
@@ -315,12 +341,29 @@ export async function registerRoutes(
   });
 
   // Create journal entry
-  app.post("/api/journal", isAuthenticated, async (req: any, res) => {
+  app.post("/api/journal", isAuthenticated, upload.single("photo"), async (req: any, res) => {
     const userId = getUserId(req);
-    const result = insertJournalEntrySchema.safeParse({
-      ...req.body,
+    
+    // Handle date parsing manually since it comes as string in multipart/form-data
+    let date = req.body.date ? new Date(req.body.date) : new Date();
+    if (isNaN(date.getTime())) {
+      date = new Date();
+    }
+
+    // Parse numeric fields from string (multipart/form-data sends everything as strings)
+    const energyLevel = parseInt(req.body.energyLevel);
+    const mood = parseInt(req.body.mood);
+
+    const entryData = {
       userId,
-    });
+      date,
+      energyLevel: isNaN(energyLevel) ? 5 : energyLevel,
+      mood: isNaN(mood) ? 5 : mood,
+      notes: req.body.notes || "",
+      photoUrl: req.file ? `/uploads/${req.file.filename}` : null,
+    };
+
+    const result = insertJournalEntrySchema.safeParse(entryData);
 
     if (!result.success) {
       return res.status(400).json({ error: fromZodError(result.error).message });

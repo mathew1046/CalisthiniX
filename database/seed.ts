@@ -1,5 +1,5 @@
 import postgres from "postgres";
-import { users, workouts, exercises, journalEntries, personalRecords } from "./shared/schema.js";
+import { users, workouts, exercises, journalEntries, personalRecords } from "../shared/schema.js";
 import { drizzle } from "drizzle-orm/postgres-js";
 import * as dotenv from "dotenv";
 
@@ -100,15 +100,24 @@ async function seedDatabase() {
 
     // Insert journal entries
     console.log("📔 Inserting journal entries...");
+    const journalData = [
+      { notes: "Great workout today!", photoUrl: "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=800&auto=format&fit=crop&q=60" },
+      { notes: "Feeling tired but did my best", photoUrl: null },
+      { notes: "Excellent session with PRs", photoUrl: "https://images.unsplash.com/photo-1599058945522-28d584b6f0ff?w=800&auto=format&fit=crop&q=60" },
+      { notes: "Recovery day", photoUrl: null },
+      { notes: "Amazing pump!", photoUrl: "https://images.unsplash.com/photo-1583454110551-21f2fa2afe61?w=800&auto=format&fit=crop&q=60" }
+    ];
+
     for (let i = 0; i < 5; i++) {
       await db
         .insert(journalEntries)
         .values({
           userId: user.id,
           date: new Date(Date.now() - i * 24 * 60 * 60 * 1000),
-          energyLevel: Math.floor(60 + Math.random() * 40),
-          mood: Math.floor(70 + Math.random() * 30),
-          notes: ["Great workout today!", "Feeling tired but did my best", "Excellent session with PRs", "Recovery day", "Amazing pump!"][i],
+          energyLevel: Math.floor(1 + Math.random() * 9),
+          mood: Math.floor(1 + Math.random() * 9),
+          notes: journalData[i].notes,
+          photoUrl: journalData[i].photoUrl,
         })
         .returning();
     }
