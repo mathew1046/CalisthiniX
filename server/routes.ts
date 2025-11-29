@@ -250,78 +250,79 @@ export async function registerRoutes(
 
   // Create personal record
   app.post("/api/records", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const result = insertPersonalRecordSchema.safeParse({
+        ...req.body,
+        userId,
+      });
+
+      if (!result.success) {
+        return res.status(400).json({ error: fromZodError(result.error).message });
+      }
+
+      const record = await storage.createPersonalRecord(result.data);
+      res.status(201).json(record);
+    } catch (error: any) {
+      console.error("Error creating personal record:", error?.message);
+      res.status(500).json({ error: "Failed to create personal record" });
+    }
+  });
+
+  // Get workout stats (for charts and analytics)
+  app.get("/api/stats/weekly-volume", isAuthenticated, async (req: any, res) => {
     const userId = getUserId(req);
-    const result = insertPersonalRecordSchema.safeParse({
-      ...req.body,
-      userId,
-    });
+    // Get last 7 days of workouts
+    const workouts = await storage.getWorkouts(userId, 30);
 
-    if (!result.success) {
-      return res.status(400).json({ error: fromZodError(result.error).message });
+    const today = new Date();
+    const weekAgo = new Date(today);
+    weekAgo.setDate(weekAgo.getDate() - 6);
+
+    // Create array of last 7 days with volumes
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const weeklyData = [];
+
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(weekAgo);
+      date.setDate(weekAgo.getDate() + i);
+      const dayName = days[date.getDay()];
+
+      const dayWorkouts = workouts.filter(w => {
+        const workoutDate = new Date(w.date);
+        return workoutDate.toDateString() === date.toDateString();
+      });
+
+      const totalVolume = dayWorkouts.reduce((sum, w) => sum + w.totalVolume, 0);
+
+      weeklyData.push({ day: dayName, volume: totalVolume });
     }
 
-    const record = await storage.createPersonalRecord(result.data);
-    res.status(201).json(record);
-  } catch (error: any) {
-    console.error("Error creating personal record:", error?.message);
-    res.status(500).json({ error: "Failed to create personal record" });
-  }
-});
+    res.json(weeklyData);
+  });
 
-// Get workout stats (for charts and analytics)
-app.get("/api/stats/weekly-volume", isAuthenticated, async (req: any, res) => {
-  const userId = getUserId(req);
-  // Get last 7 days of workouts
-  const workouts = await storage.getWorkouts(userId, 30);
+  // Exercise Library Routes
+  app.get("/api/exercises", async (req, res) => {
+    try {
+      const { q, category, difficulty, limit = "50", offset = "0" } = req.query;
 
-  const today = new Date();
-  const weekAgo = new Date(today);
-  weekAgo.setDate(weekAgo.getDate() - 6);
+      const conditions = [];
+      if (q) {
+        conditions.push(sql`name ILIKE ${'%' + (q as string) + '%'}`);
+      }
+      if (category) {
+        conditions.push(sql`category = ${category as string}`);
+      }
+      if (difficulty) {
+        conditions.push(sql`difficulty = ${difficulty as string}`);
+      }
 
-  // Create array of last 7 days with volumes
-  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const weeklyData = [];
+      let whereClause = sql`TRUE`;
+      if (conditions.length > 0) {
+        whereClause = conditions.reduce((acc, curr) => sql`${acc} AND ${curr}`);
+      }
 
-  for (let i = 0; i < 7; i++) {
-    const date = new Date(weekAgo);
-    date.setDate(weekAgo.getDate() + i);
-    const dayName = days[date.getDay()];
-
-    const dayWorkouts = workouts.filter(w => {
-      const workoutDate = new Date(w.date);
-      return workoutDate.toDateString() === date.toDateString();
-    });
-
-    const totalVolume = dayWorkouts.reduce((sum, w) => sum + w.totalVolume, 0);
-
-    weeklyData.push({ day: dayName, volume: totalVolume });
-  }
-
-  res.json(weeklyData);
-});
-
-// Exercise Library Routes
-app.get("/api/exercises", async (req, res) => {
-  try {
-    const { q, category, difficulty, limit = "50", offset = "0" } = req.query;
-
-    const conditions = [];
-    if (q) {
-      conditions.push(sql`name ILIKE ${'%' + (q as string) + '%'}`);
-    }
-    if (category) {
-      conditions.push(sql`category = ${category as string}`);
-    }
-    if (difficulty) {
-      conditions.push(sql`difficulty = ${difficulty as string}`);
-    }
-
-    let whereClause = sql`TRUE`;
-    if (conditions.length > 0) {
-      whereClause = conditions.reduce((acc, curr) => sql`${acc} AND ${curr}`);
-    }
-
-    const exercises = await sql`
+      const exercises = await sql`
         SELECT id, name, slug, category, difficulty, demo_image_url 
         FROM exercise_library
         WHERE ${whereClause}
@@ -329,30 +330,30 @@ app.get("/api/exercises", async (req, res) => {
         LIMIT ${parseInt(limit as string)} OFFSET ${parseInt(offset as string)}
       `;
 
-    res.json(exercises);
-  } catch (error) {
-    console.error("Error fetching exercises:", error);
-    res.status(500).json({ error: "Internal Server Error" });
-  }
-});
+      res.json(exercises);
+    } catch (error) {
+      console.error("Error fetching exercises:", error);
+      res.status(500).json({ error: "Internal Server Error" });
+    }
+  });
 
-app.get("/api/exercises/:slug", async (req, res) => {
-  try {
-    const { slug } = req.params;
-    const [exercise] = await sql`
+  app.get("/api/exercises/:slug", async (req, res) => {
+    try {
+      const { slug } = req.params;
+      const [exercise] = await sql`
         SELECT * FROM exercise_library WHERE slug = ${slug}
       `;
 
-    if (!exercise) {
-      return res.status(404).json({ error: "Exercise not found" });
+      if (!exercise) {
+        return res.status(404).json({ error: "Exercise not found" });
+      }
+
+      res.json(exercise);
+    } catch (error) {
+      console.error("Error fetching exercise:", error);
+      res.status(500).json({ error: "Internal Server Error" });
     }
+  });
 
-    res.json(exercise);
-  } catch (error) {
-    console.error("Error fetching exercise:", error);
-    res.status(500).json({ error: "Internal Server Error" });
-  }
-});
-
-return httpServer;
+  return httpServer;
 }
