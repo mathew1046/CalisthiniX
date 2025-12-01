@@ -1,5 +1,5 @@
 /**
- * CalistheniX - Database Utilities
+ * Calyxpert - Database Utilities
  * 
  * Usage:
  *   npx tsx database/utils.ts check <table_name>     # Check columns of a table
@@ -80,7 +80,7 @@ async function main() {
 
       default:
         console.log(`
-CalistheniX Database Utilities
+Calyxpert Database Utilities
 
 Commands:
   check <table>  - Show columns for a table

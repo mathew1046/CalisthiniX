@@ -1,4 +1,4 @@
--- CalistheniX Database Schema
+-- Calyxpert Database Schema
 -- This file creates all necessary tables for the application
 -- Run this before seed.sql
 

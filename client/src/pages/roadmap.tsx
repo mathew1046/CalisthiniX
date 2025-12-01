@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 import { CheckCircle2, Lock, PlayCircle } from "lucide-react";
-import mapBg from "@assets/generated_images/dark_abstract_topographic_map_background.png";
+import { useTheme } from "@/components/theme";
 
 const levels = [
   {
@@ -41,13 +41,19 @@ const levels = [
 ];
 
 export default function Roadmap() {
+  const { theme } = useTheme();
+  
+  const bgImage = theme === "dark" 
+    ? "/images/theme-dark.png" 
+    : "/images/theme-light.png";
+
   return (
     <div className="relative min-h-screen pb-20">
        {/* Background Texture */}
        <div 
-        className="fixed inset-0 z-0 opacity-20 pointer-events-none" 
+        className="fixed inset-0 z-0 opacity-20 dark:opacity-10 pointer-events-none transition-opacity duration-300" 
         style={{ 
-          backgroundImage: `url(${mapBg})`,
+          backgroundImage: `url(${bgImage})`,
           backgroundSize: 'cover',
           backgroundPosition: 'center'
         }} 

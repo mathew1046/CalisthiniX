@@ -1,5 +1,5 @@
 /**
- * CalistheniX - Unified Database Setup Script
+ * Calyxpert - Unified Database Setup Script
  * 
  * This script handles all database initialization:
  * 1. Creates all tables (schema.sql)
@@ -25,7 +25,7 @@ const shouldSeed = args.includes('--seed');
 const shouldReset = args.includes('--reset');
 
 async function setup() {
-  console.log('\n🚀 CalistheniX Database Setup\n');
+  console.log('\n🚀 Calyxpert Database Setup\n');
   console.log('━'.repeat(50));
 
   if (!process.env.DATABASE_URL) {

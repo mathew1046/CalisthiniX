@@ -28,8 +28,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <div className="w-8 h-8 rounded bg-primary flex items-center justify-center text-primary-foreground font-bold font-heading text-xl">
             C
           </div>
-          <span className="text-2xl font-heading font-bold tracking-wider text-white">
-            CALISTHENI<span className="text-primary">X</span>
+          <span className="text-2xl font-heading font-bold tracking-wider">
+            CALYX<span className="text-primary">PERT</span>
           </span>
         </div>
 
@@ -80,8 +80,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div className="w-8 h-8 rounded bg-primary flex items-center justify-center text-primary-foreground font-bold font-heading">
               C
             </div>
-            <span className="text-xl font-heading font-bold tracking-wider text-white">
-              CALISTHENI<span className="text-primary">X</span>
+            <span className="text-xl font-heading font-bold tracking-wider">
+              CALYX<span className="text-primary">PERT</span>
             </span>
           </div>
 
