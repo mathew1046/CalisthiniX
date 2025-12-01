@@ -1,8 +1,9 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { WorkoutCalendar } from "@/components/workout-calendar";
-import { ArrowLeft, Clock, Info, Plus, CheckCircle2, Play, Square, CalendarDays, Dumbbell, X } from "lucide-react";
+import { ArrowLeft, Clock, Info, Plus, CheckCircle2, Play, Square, CalendarDays, Dumbbell, X, Trophy, Sparkles } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { Link, useLocation } from "wouter";
 import { ExercisePicker } from "@/components/exercise-picker";
@@ -41,15 +42,25 @@ export default function Workout() {
   const [workoutId, setWorkoutId] = useState<number | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
   const [selectedDayWorkout, setSelectedDayWorkout] = useState<any>(null);
+  const [showCompletionBanner, setShowCompletionBanner] = useState(false);
+  const [completedWorkoutStats, setCompletedWorkoutStats] = useState<{ name: string; duration: number; volume: number } | null>(null);
 
   // Fetch all workouts for history calendar
-  const { data: allWorkouts } = useQuery<any[]>({
+  const { data: allWorkouts, refetch: refetchWorkouts } = useQuery<any[]>({
     queryKey: ["/api/workouts/history"],
     queryFn: async () => {
       const res = await apiRequest("GET", "/api/workouts?limit=100");
       return res.json();
-    }
+    },
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
+
+  // Refetch workouts when component mounts
+  useEffect(() => {
+    refetchWorkouts();
+  }, [refetchWorkouts]);
 
   // State to hold all workouts for a selected day (multiple workouts per day)
   const [selectedDayWorkouts, setSelectedDayWorkouts] = useState<any[]>([]);
@@ -211,10 +222,22 @@ export default function Workout() {
       const res = await apiRequest("POST", "/api/workouts", workoutData);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/workouts"] });
-      toast({ title: "Workout Saved", description: "Great job! Your workout has been logged." });
-      setLocation("/");
+      queryClient.invalidateQueries({ queryKey: ["/api/workouts/history"] });
+      refetchWorkouts();
+      // Show completion banner instead of redirecting
+      setCompletedWorkoutStats({
+        name: variables.name,
+        duration: variables.duration,
+        volume: variables.totalVolume
+      });
+      setShowCompletionBanner(true);
+      // Reset workout form
+      setWorkoutName("New Workout");
+      setExercises([]);
+      setTimer(0);
+      setWorkoutId(null);
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -226,10 +249,22 @@ export default function Workout() {
       const res = await apiRequest("PATCH", `/api/workouts/${workoutId}`, data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/workouts"] });
-      toast({ title: "Workout Completed", description: "Great job! Your workout has been logged." });
-      setLocation("/");
+      queryClient.invalidateQueries({ queryKey: ["/api/workouts/history"] });
+      refetchWorkouts();
+      // Show completion banner instead of redirecting
+      setCompletedWorkoutStats({
+        name: variables.name,
+        duration: variables.duration,
+        volume: variables.totalVolume
+      });
+      setShowCompletionBanner(true);
+      // Reset workout form
+      setWorkoutName("New Workout");
+      setExercises([]);
+      setTimer(0);
+      setWorkoutId(null);
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -313,6 +348,57 @@ export default function Workout() {
 
   return (
     <div className="max-w-3xl mx-auto pb-20 space-y-6 p-4">
+      {/* Workout Completion Banner */}
+      {showCompletionBanner && completedWorkoutStats && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+          <Card className="w-full max-w-md border-primary/50 shadow-2xl shadow-primary/20 animate-in zoom-in-95 duration-300">
+            <CardContent className="pt-8 pb-6 text-center">
+              <div className="relative mb-6">
+                <div className="w-20 h-20 mx-auto rounded-full bg-primary/20 flex items-center justify-center">
+                  <Trophy className="w-10 h-10 text-primary" />
+                </div>
+                <Sparkles className="w-6 h-6 text-yellow-500 absolute top-0 right-1/4 animate-pulse" />
+                <Sparkles className="w-4 h-4 text-yellow-500 absolute bottom-2 left-1/4 animate-pulse delay-150" />
+              </div>
+              
+              <h2 className="text-2xl sm:text-3xl font-heading font-bold uppercase mb-2">
+                Workout Complete!
+              </h2>
+              <p className="text-muted-foreground mb-6">
+                Great job crushing <span className="text-primary font-semibold">{completedWorkoutStats.name}</span>!
+              </p>
+              
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                <div className="bg-secondary/50 rounded-lg p-4">
+                  <p className="text-2xl font-bold text-primary">
+                    {Math.floor(completedWorkoutStats.duration / 60)}:{String(completedWorkoutStats.duration % 60).padStart(2, '0')}
+                  </p>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider">Duration</p>
+                </div>
+                <div className="bg-secondary/50 rounded-lg p-4">
+                  <p className="text-2xl font-bold text-primary">
+                    {completedWorkoutStats.volume.toLocaleString()} kg
+                  </p>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider">Volume</p>
+                </div>
+              </div>
+              
+              <Button 
+                onClick={() => {
+                  setShowCompletionBanner(false);
+                  setCompletedWorkoutStats(null);
+                }}
+                className="w-full"
+                size="lg"
+              >
+                <CheckCircle2 className="w-5 h-5 mr-2" />
+                Continue
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between sticky top-0 bg-background/60 backdrop-blur-md p-4 -mx-4 z-40 border-b border-border md:static md:bg-transparent md:border-none md:p-0 md:mx-0">
         <div className="flex items-center gap-4">

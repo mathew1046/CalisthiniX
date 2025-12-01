@@ -1,25 +1,47 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Flame, ChevronRight, Trophy, Activity, Calendar } from "lucide-react";
+import { Flame, ChevronRight, Trophy, Activity, Calendar, Dumbbell } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
 import heroImage from "@assets/generated_images/calisthenics_athlete_pull_up_dark_lighting_neon_green.png";
 import { Link } from "wouter";
-import { useAuth } from "@/hooks/useAuth";
+import { useMe } from "@/hooks/useMe";
 import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+
+interface ProfileStats {
+  totalWorkouts: number;
+  activeTime: string;
+  activeMinutes: number;
+  currentStreak: number;
+  favoriteWorkout: string;
+  pr: { exerciseName: string; weight: number } | null;
+}
+
+interface WeeklyDataPoint {
+  day: string;
+  volume: number;
+}
 
 export default function Home() {
-  const { user } = useAuth();
+  const { user } = useMe();
   
+  // Fetch profile stats (includes streak and PR from database)
+  const { data: profileStats } = useQuery<ProfileStats>({
+    queryKey: ["/api/stats/profile"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/stats/profile");
+      return res.json();
+    },
+    refetchOnMount: "always",
+    staleTime: 0,
+  });
+
   // Fetch weekly volume data
-  const { data: weeklyData = [] } = useQuery({
+  const { data: weeklyData = [] } = useQuery<WeeklyDataPoint[]>({
     queryKey: ["/api/stats/weekly-volume"],
   });
 
-  // Fetch recent personal records
-  const { data: records = [] } = useQuery({
-    queryKey: ["/api/records"],
-  });
   return (
     <div className="space-y-8 pb-20">
       {/* Welcome Header */}
@@ -27,12 +49,12 @@ export default function Home() {
         <div>
           <h2 className="text-muted-foreground font-medium mb-1">Welcome back</h2>
           <h1 className="text-4xl md:text-5xl font-heading font-bold uppercase tracking-tight">
-            {user?.displayName || 'ATHLETE'} <span className="text-primary">!</span>
+            {user?.firstName || user?.displayName || 'ATHLETE'} <span className="text-primary">!</span>
           </h1>
         </div>
         <div className="flex items-center gap-2 bg-card border border-border px-4 py-2 rounded-full">
           <Flame className="text-orange-500 fill-orange-500 animate-pulse" size={20} />
-          <span className="font-heading font-bold text-xl">{user?.streak || 0} DAYS</span>
+          <span className="font-heading font-bold text-xl">{profileStats?.currentStreak || 0} DAYS</span>
         </div>
       </div>
 
@@ -123,18 +145,17 @@ export default function Home() {
 
         <Card className="bg-card border-border hover:border-primary/50 transition-colors">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Recent PRs</CardTitle>
-            <Calendar className="h-4 w-4 text-primary" />
+            <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Personal Record</CardTitle>
+            <Dumbbell className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {records.slice(0, 2).map((record: any) => (
-                <div key={record.id} className="flex justify-between items-center text-sm">
-                  <span className="text-foreground">{record.exerciseName}</span>
-                  <span className="text-primary font-bold font-mono">{record.value}</span>
+              {profileStats?.pr && profileStats.pr.weight > 0 ? (
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-foreground">{profileStats.pr.exerciseName}</span>
+                  <span className="text-primary font-bold font-mono">{profileStats.pr.weight} kg</span>
                 </div>
-              ))}
-              {records.length === 0 && (
+              ) : (
                 <p className="text-xs text-muted-foreground">No PRs yet. Start tracking!</p>
               )}
             </div>
@@ -148,15 +169,38 @@ export default function Home() {
           <span className="w-2 h-2 rounded-full bg-primary" /> Quick Actions
         </h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {["Check Form", "Log Journal", "Edit Routine", "Warm Up"].map((action, i) => (
+          <Link href="/coach">
             <Button 
-              key={i} 
               variant="outline" 
-              className="h-auto py-4 flex flex-col gap-2 bg-card hover:bg-accent hover:text-accent-foreground border-border"
+              className="h-auto py-4 w-full flex flex-col gap-2 bg-card hover:bg-accent hover:text-accent-foreground border-border"
             >
-              <span className="font-heading font-medium tracking-wide">{action}</span>
+              <span className="font-heading font-medium tracking-wide">Check Form</span>
             </Button>
-          ))}
+          </Link>
+          <Link href="/journal">
+            <Button 
+              variant="outline" 
+              className="h-auto py-4 w-full flex flex-col gap-2 bg-card hover:bg-accent hover:text-accent-foreground border-border"
+            >
+              <span className="font-heading font-medium tracking-wide">Log Journal</span>
+            </Button>
+          </Link>
+          <Link href="/templates">
+            <Button 
+              variant="outline" 
+              className="h-auto py-4 w-full flex flex-col gap-2 bg-card hover:bg-accent hover:text-accent-foreground border-border"
+            >
+              <span className="font-heading font-medium tracking-wide">Edit Routine</span>
+            </Button>
+          </Link>
+          <Link href="/workout">
+            <Button 
+              variant="outline" 
+              className="h-auto py-4 w-full flex flex-col gap-2 bg-card hover:bg-accent hover:text-accent-foreground border-border"
+            >
+              <span className="font-heading font-medium tracking-wide">Warm Up</span>
+            </Button>
+          </Link>
         </div>
       </div>
     </div>
