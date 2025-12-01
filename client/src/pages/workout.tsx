@@ -314,7 +314,7 @@ export default function Workout() {
   return (
     <div className="max-w-3xl mx-auto pb-20 space-y-6 p-4">
       {/* Header */}
-      <div className="flex items-center justify-between sticky top-0 bg-background/80 backdrop-blur-md p-4 -mx-4 z-40 border-b border-border md:static md:bg-transparent md:border-none md:p-0 md:mx-0">
+      <div className="flex items-center justify-between sticky top-0 bg-background/60 backdrop-blur-md p-4 -mx-4 z-40 border-b border-border md:static md:bg-transparent md:border-none md:p-0 md:mx-0">
         <div className="flex items-center gap-4">
           <Link href="/">
             <Button variant="ghost" size="icon" className="rounded-full">
