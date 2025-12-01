@@ -466,6 +466,67 @@ export async function registerRoutes(
     res.json(weeklyData);
   });
 
+  // Get profile stats (total workouts, active minutes, current streak, favorite workout)
+  app.get("/api/stats/profile", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      
+      // Get all workouts for stats calculation
+      const workouts = await storage.getWorkouts(userId, 1000);
+      
+      // Get user for streak info
+      const user = await storage.getUser(userId);
+      
+      // Calculate total workouts
+      const totalWorkouts = workouts.length;
+      
+      // Calculate total active minutes (sum of all workout durations)
+      const totalActiveSeconds = workouts.reduce((sum, w) => sum + (w.duration || 0), 0);
+      const totalActiveMinutes = Math.floor(totalActiveSeconds / 60);
+      const activeHours = Math.floor(totalActiveMinutes / 60);
+      const activeMinutes = totalActiveMinutes % 60;
+      const activeTimeFormatted = activeHours > 0 
+        ? `${activeHours}h ${activeMinutes}m` 
+        : `${activeMinutes}m`;
+      
+      // Get current streak from user
+      const currentStreak = user?.streak || 0;
+      
+      // Calculate favorite workout (most frequent workout name)
+      const workoutNameCounts = workouts.reduce((acc: Record<string, number>, w) => {
+        const name = w.name || "Unnamed Workout";
+        acc[name] = (acc[name] || 0) + 1;
+        return acc;
+      }, {});
+      
+      let favoriteWorkout = "None yet";
+      let maxCount = 0;
+      for (const [name, count] of Object.entries(workoutNameCounts)) {
+        if (count > maxCount) {
+          maxCount = count;
+          favoriteWorkout = name;
+        }
+      }
+      
+      res.json({
+        totalWorkouts,
+        activeTime: activeTimeFormatted,
+        activeMinutes: totalActiveMinutes,
+        currentStreak,
+        favoriteWorkout
+      });
+    } catch (error: any) {
+      console.error("Error fetching profile stats:", error?.message);
+      res.json({
+        totalWorkouts: 0,
+        activeTime: "0m",
+        activeMinutes: 0,
+        currentStreak: 0,
+        favoriteWorkout: "None yet"
+      });
+    }
+  });
+
   // Exercise Library Routes
   app.get("/api/exercises", async (req, res) => {
     try {
