@@ -1,25 +1,79 @@
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bot, Send, Sparkles } from "lucide-react";
-import { useState } from "react";
+import { Bot, Send, Sparkles, Loader2, AlertCircle } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { useCoachChat, useCoachSuggestions, ChatMessage } from "@/hooks/use-coach-chat";
+
+interface DisplayMessage {
+  role: "user" | "model";
+  content: string;
+}
 
 export default function Coach() {
-  const [messages, setMessages] = useState([
-    { role: "ai", content: "Ready to crush it today? I noticed your pull-up volume has increased by 12% this week. Should we focus on muscle-up transitions or weighted pull-ups today?" }
-  ]);
+  const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
+  const [suggestedFollowUps, setSuggestedFollowUps] = useState<string[]>([]);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  
+  const { mutate: sendMessage, isPending, error } = useCoachChat();
+  const { data: initialSuggestions, isLoading: suggestionsLoading } = useCoachSuggestions();
 
-  const handleSend = () => {
-    if (!input.trim()) return;
-    setMessages([...messages, { role: "user", content: input }]);
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    if (scrollAreaRef.current) {
+      const scrollContainer = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]');
+      if (scrollContainer) {
+        scrollContainer.scrollTop = scrollContainer.scrollHeight;
+      }
+    }
+  }, [messages, isPending]);
+
+  const handleSend = (messageText?: string) => {
+    const text = messageText || input;
+    if (!text.trim() || isPending) return;
+    
+    // Add user message to display
+    const userMessage: DisplayMessage = { role: "user", content: text };
+    setMessages(prev => [...prev, userMessage]);
     setInput("");
-    // Simulate AI response
-    setTimeout(() => {
-      setMessages(prev => [...prev, { role: "ai", content: "That sounds like a solid plan. For muscle-up transitions, let's incorporate 'Explosive High Pull-ups' and 'Bar Dips'. Aim for 3 sets of 5 reps each with 3 minutes rest." }]);
-    }, 1000);
+    setSuggestedFollowUps([]);
+
+    // Build history for API (exclude the message we're sending)
+    const history: ChatMessage[] = messages.map(m => ({
+      role: m.role,
+      content: m.content
+    }));
+
+    sendMessage(
+      { message: text, history },
+      {
+        onSuccess: (response) => {
+          // Add AI response
+          const aiMessage: DisplayMessage = { role: "model", content: response.reply };
+          setMessages(prev => [...prev, aiMessage]);
+          setSuggestedFollowUps(response.suggestedFollowUps);
+        },
+        onError: (err) => {
+          // Add error message
+          const errorMessage: DisplayMessage = { 
+            role: "model", 
+            content: `Sorry, I encountered an error: ${err.message}. Please try again.` 
+          };
+          setMessages(prev => [...prev, errorMessage]);
+        }
+      }
+    );
   };
+
+  const handleSuggestionClick = (suggestion: string) => {
+    handleSend(suggestion);
+  };
+
+  // Show initial suggestions or follow-ups
+  const displaySuggestions = suggestedFollowUps.length > 0 
+    ? suggestedFollowUps 
+    : (messages.length === 0 ? initialSuggestions : []);
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)] md:h-[calc(100vh-4rem)] max-w-4xl mx-auto border border-border rounded-xl overflow-hidden bg-card shadow-2xl">
@@ -29,7 +83,7 @@ export default function Coach() {
           <Bot className="w-6 h-6 text-primary-foreground" />
         </div>
         <div>
-          <h2 className="font-heading font-bold text-lg tracking-wide">Coach AI</h2>
+          <h2 className="font-heading font-bold text-lg tracking-wide">Calyxpert Coach</h2>
           <p className="text-xs text-primary flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
             Online
@@ -38,11 +92,25 @@ export default function Coach() {
       </div>
 
       {/* Chat Area */}
-      <ScrollArea className="flex-1 p-4 space-y-4">
+      <ScrollArea ref={scrollAreaRef} className="flex-1 p-4 space-y-4">
         <div className="space-y-6 pb-4">
+          {/* Welcome message when no messages */}
+          {messages.length === 0 && (
+            <div className="flex gap-3 flex-row">
+              <div className="w-8 h-8 rounded bg-primary/10 flex items-center justify-center mt-1 border border-primary/20">
+                <Bot className="w-4 h-4 text-primary" />
+              </div>
+              <div className="max-w-[80%] p-4 rounded-2xl text-sm leading-relaxed bg-secondary/50 border border-border text-foreground rounded-tl-none">
+                Hey there! 👋 I'm your Calyxpert Coach, here to help you with your calisthenics journey. 
+                I can analyze your workouts, suggest progressions, help with form, and create personalized training plans.
+                What would you like to work on today?
+              </div>
+            </div>
+          )}
+
           {messages.map((msg, i) => (
             <div key={i} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-              {msg.role === 'ai' ? (
+              {msg.role === 'model' ? (
                 <div className="w-8 h-8 rounded bg-primary/10 flex items-center justify-center mt-1 border border-primary/20">
                    <Bot className="w-4 h-4 text-primary" />
                 </div>
@@ -52,7 +120,7 @@ export default function Coach() {
                 </div>
               )}
               
-              <div className={`max-w-[80%] p-4 rounded-2xl text-sm leading-relaxed ${
+              <div className={`max-w-[80%] p-4 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
                 msg.role === 'user' 
                   ? 'bg-primary text-primary-foreground rounded-tr-none' 
                   : 'bg-secondary/50 border border-border text-foreground rounded-tl-none'
@@ -61,30 +129,62 @@ export default function Coach() {
               </div>
             </div>
           ))}
+
+          {/* Loading indicator */}
+          {isPending && (
+            <div className="flex gap-3 flex-row">
+              <div className="w-8 h-8 rounded bg-primary/10 flex items-center justify-center mt-1 border border-primary/20">
+                <Bot className="w-4 h-4 text-primary" />
+              </div>
+              <div className="max-w-[80%] p-4 rounded-2xl text-sm leading-relaxed bg-secondary/50 border border-border text-foreground rounded-tl-none">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Thinking...</span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </ScrollArea>
 
       {/* Input Area */}
       <div className="p-4 bg-sidebar border-t border-border">
-        {/* Suggested Prompts */}
-        <div className="flex gap-2 mb-4 overflow-x-auto pb-2 scrollbar-none">
-          {["Fix my form", "Generate Split", "Why am I plateauing?", "Warmup Routine"].map(prompt => (
-            <button key={prompt} className="whitespace-nowrap px-3 py-1.5 rounded-full border border-border bg-background/50 text-xs font-medium hover:bg-primary/10 hover:border-primary hover:text-primary transition-colors flex items-center gap-1">
-              <Sparkles className="w-3 h-3" /> {prompt}
-            </button>
-          ))}
-        </div>
+        {/* Suggested Prompts / Follow-ups */}
+        {displaySuggestions && displaySuggestions.length > 0 && (
+          <div className="flex gap-2 mb-4 overflow-x-auto pb-2 scrollbar-none">
+            {displaySuggestions.map((suggestion, idx) => (
+              <button 
+                key={idx} 
+                onClick={() => handleSuggestionClick(suggestion)}
+                disabled={isPending}
+                className="whitespace-nowrap px-3 py-1.5 rounded-full border border-border bg-background/50 text-xs font-medium hover:bg-primary/10 hover:border-primary hover:text-primary transition-colors flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Sparkles className="w-3 h-3" /> {suggestion}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="flex gap-2">
           <Input 
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Ask Coach AI..." 
-            className="bg-background border-border focus:border-primary"
+            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
+            placeholder="Ask Calyxpert Coach..." 
+            disabled={isPending}
+            className="bg-background border-border focus:border-primary disabled:opacity-50"
           />
-          <Button onClick={handleSend} size="icon" className="bg-primary text-primary-foreground hover:bg-primary/90 shrink-0">
-            <Send className="w-5 h-5" />
+          <Button 
+            onClick={() => handleSend()} 
+            size="icon" 
+            disabled={isPending || !input.trim()}
+            className="bg-primary text-primary-foreground hover:bg-primary/90 shrink-0 disabled:opacity-50"
+          >
+            {isPending ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <Send className="w-5 h-5" />
+            )}
           </Button>
         </div>
       </div>

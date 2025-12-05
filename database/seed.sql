@@ -1,4 +1,4 @@
--- CalistheniX Seed Data
+-- Calyxpert Seed Data
 -- This file populates the database with initial data
 -- Run this AFTER schema.sql
 

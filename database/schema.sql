@@ -1,4 +1,4 @@
--- CalistheniX Database Schema
+-- Calyxpert Database Schema
 -- This file creates all necessary tables for the application
 -- Run this before seed.sql
 
@@ -41,8 +41,12 @@ CREATE TABLE IF NOT EXISTS workouts (
   user_id VARCHAR NOT NULL REFERENCES users(id),
   name TEXT NOT NULL,
   date TIMESTAMP NOT NULL DEFAULT NOW(),
+  started_at TIMESTAMPTZ DEFAULT NOW(),
+  completed_at TIMESTAMPTZ,
   duration INTEGER,
+  duration_seconds INTEGER,
   total_volume INTEGER NOT NULL DEFAULT 0,
+  status TEXT DEFAULT 'in_progress' CHECK (status IN ('in_progress', 'completed')),
   notes TEXT,
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );

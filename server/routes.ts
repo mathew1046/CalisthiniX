@@ -11,6 +11,7 @@ import {
   updateUserProfileSchema
 } from "@shared/schema";
 import { fromZodError } from "zod-validation-error";
+import { registerCoachRoutes } from "./ai/coachRoutes";
 
 // Helper function to get userId from request (works with both local auth and replit auth)
 function getUserId(req: any): string {
@@ -100,6 +101,9 @@ export async function registerRoutes(
 
   // Setup Local Auth (for development)
   setupLocalAuth(app);
+
+  // Register AI Coach routes
+  registerCoachRoutes(app);
 
   // Auth route - get current user
   app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
@@ -297,7 +301,16 @@ export async function registerRoutes(
       return res.status(403).json({ error: "Not authorized" });
     }
 
-    const updatedWorkout = await storage.updateWorkout(workoutId, req.body);
+    // Convert date strings to Date objects for Drizzle
+    const updates = { ...req.body };
+    if (updates.startedAt && typeof updates.startedAt === 'string') {
+      updates.startedAt = new Date(updates.startedAt);
+    }
+    if (updates.completedAt && typeof updates.completedAt === 'string') {
+      updates.completedAt = new Date(updates.completedAt);
+    }
+
+    const updatedWorkout = await storage.updateWorkout(workoutId, updates);
     res.json(updatedWorkout);
   });
 
@@ -346,7 +359,61 @@ export async function registerRoutes(
     res.status(201).json(exercise);
   });
 
-  // Delete exercise
+  // Update exercise in workout
+  app.put("/api/workouts/:workoutId/exercises/:exerciseId", isAuthenticated, async (req: any, res) => {
+    const userId = getUserId(req);
+    const workoutId = parseInt(req.params.workoutId);
+    const exerciseId = parseInt(req.params.exerciseId);
+    
+    const workout = await storage.getWorkout(workoutId);
+    if (!workout) {
+      return res.status(404).json({ error: "Workout not found" });
+    }
+
+    if (workout.userId !== userId) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    const exercise = await storage.getExercise(exerciseId);
+    if (!exercise || exercise.workoutId !== workoutId) {
+      return res.status(404).json({ error: "Exercise not found in this workout" });
+    }
+
+    // Update only allowed fields (sets, order, name)
+    const updates: any = {};
+    if (req.body.sets !== undefined) updates.sets = req.body.sets;
+    if (req.body.order !== undefined) updates.order = req.body.order;
+    if (req.body.name !== undefined) updates.name = req.body.name;
+
+    const updatedExercise = await storage.updateExercise(exerciseId, updates);
+    res.json(updatedExercise);
+  });
+
+  // Delete exercise from workout
+  app.delete("/api/workouts/:workoutId/exercises/:exerciseId", isAuthenticated, async (req: any, res) => {
+    const userId = getUserId(req);
+    const workoutId = parseInt(req.params.workoutId);
+    const exerciseId = parseInt(req.params.exerciseId);
+    
+    const workout = await storage.getWorkout(workoutId);
+    if (!workout) {
+      return res.status(404).json({ error: "Workout not found" });
+    }
+
+    if (workout.userId !== userId) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    const exercise = await storage.getExercise(exerciseId);
+    if (!exercise || exercise.workoutId !== workoutId) {
+      return res.status(404).json({ error: "Exercise not found in this workout" });
+    }
+
+    await storage.deleteExercise(exerciseId);
+    res.status(204).send();
+  });
+
+  // Delete exercise (legacy endpoint - keep for backwards compatibility)
   app.delete("/api/exercises/:id", isAuthenticated, async (req: any, res) => {
     const exerciseId = parseInt(req.params.id);
     await storage.deleteExercise(exerciseId);
