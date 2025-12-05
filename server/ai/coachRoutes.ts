@@ -1,6 +1,7 @@
 import { Express, Request, Response } from "express";
 import { geminiModel, COACH_SYSTEM_PROMPT } from "./geminiClient";
 import { sql } from "../db";
+import { z } from "zod";
 
 interface ChatMessage {
   role: "user" | "model";
@@ -16,6 +17,31 @@ interface CoachChatResponse {
   reply: string;
   suggestedFollowUps: string[];
 }
+
+// Schemas for template generation
+const generateTemplateRequestSchema = z.object({
+  goal: z.string().min(1, "Goal is required"),
+  level: z.enum(["beginner", "intermediate", "advanced"]).optional(),
+  focusAreas: z.array(z.string()).optional(),
+  name: z.string().optional(),
+});
+
+const generatedTemplateSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  category: z.enum(["push", "pull", "legs", "core", "full_body"]),
+  difficulty: z.enum(["beginner", "intermediate", "advanced"]),
+  exercises: z.array(z.object({
+    exerciseSlug: z.string(),
+    sets: z.number().min(1).max(10),
+    reps: z.number().min(1).max(100),
+    restSeconds: z.number().min(0).max(300),
+    notes: z.string().optional(),
+  })).min(1).max(12),
+});
+
+type GenerateTemplateRequest = z.infer<typeof generateTemplateRequestSchema>;
+type GeneratedTemplate = z.infer<typeof generatedTemplateSchema>;
 
 // Helper to get user ID from request (works with local auth pattern)
 function getUserId(req: Request): string | null {
@@ -94,7 +120,7 @@ async function buildUserContext(userId: string): Promise<string> {
 
     // Get personal records
     const prsResult = await sql`
-      SELECT exercise_name, value, unit, achieved_at, notes
+      SELECT exercise_name, value, achieved_at
       FROM personal_records
       WHERE user_id = ${userId}
       ORDER BY achieved_at DESC
@@ -131,7 +157,7 @@ ${templatesResult.map((t: any) => `- ${t.name}${t.description ? `: ${t.descripti
 
     if (prsResult.length > 0) {
       context += `## Personal Records
-${prsResult.map((pr: any) => `- ${pr.exercise_name}: ${pr.value} ${pr.unit || ""}`).join("\n")}
+${prsResult.map((pr: any) => `- ${pr.exercise_name}: ${pr.value}`).join("\n")}
 `;
     }
 
@@ -188,9 +214,17 @@ export function registerCoachRoutes(app: Express): void {
 
       const { message, history = [] }: CoachChatRequest = req.body;
 
-      if (!message || typeof message !== "string") {
-        return res.status(400).json({ error: "Message is required" });
+      if (!message || typeof message !== "string" || message.trim().length === 0) {
+        return res.status(400).json({ error: "Message is required and cannot be empty" });
       }
+
+      // Limit message length to prevent abuse
+      if (message.length > 5000) {
+        return res.status(400).json({ error: "Message too long (max 5000 characters)" });
+      }
+
+      // Limit history length to prevent token overflow
+      const trimmedHistory = history.slice(-10); // Keep last 10 messages
 
       // Build user context
       const userContext = await buildUserContext(userId);
@@ -215,7 +249,7 @@ ${userContext}`;
       });
 
       // Add conversation history
-      for (const msg of history) {
+      for (const msg of trimmedHistory) {
         contents.push({
           role: msg.role === "user" ? "user" : "model",
           parts: [{ text: msg.content }]
@@ -245,8 +279,17 @@ ${userContext}`;
     } catch (error: any) {
       console.error("Coach chat error:", error);
       
+      // Handle specific Gemini API errors
       if (error.message?.includes("API key")) {
         return res.status(503).json({ error: "AI Coach configuration error. Please check GEMINI_API_KEY." });
+      }
+      
+      if (error.message?.includes("RATE_LIMIT") || error.message?.includes("quota")) {
+        return res.status(429).json({ error: "AI Coach is temporarily overloaded. Please try again in a moment." });
+      }
+      
+      if (error.message?.includes("SAFETY")) {
+        return res.status(400).json({ error: "Your message couldn't be processed. Please rephrase and try again." });
       }
       
       res.status(500).json({ error: "Failed to process chat message" });
@@ -286,6 +329,189 @@ ${userContext}`;
     } catch (error) {
       console.error("Error getting suggestions:", error);
       res.status(500).json({ error: "Failed to get suggestions" });
+    }
+  });
+
+  // POST /api/coach/generate-template - Generate a workout template using AI
+  app.post("/api/coach/generate-template", async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      if (!process.env.GEMINI_API_KEY) {
+        return res.status(503).json({ error: "AI Coach is not configured. Please set GEMINI_API_KEY." });
+      }
+
+      // Validate request body
+      const parseResult = generateTemplateRequestSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ 
+          error: "Invalid request", 
+          details: parseResult.error.errors 
+        });
+      }
+
+      const { goal, level = "intermediate", focusAreas, name: customName } = parseResult.data;
+
+      // Fetch available exercises from exercise_library
+      const exercisesResult = await sql`
+        SELECT id, slug, name, category, difficulty
+        FROM exercise_library
+        ORDER BY category, difficulty, name
+      `;
+
+      if (exercisesResult.length === 0) {
+        return res.status(500).json({ error: "No exercises available in the library" });
+      }
+
+      // Build exercise list for the prompt
+      const exerciseList = exercisesResult.map((e: any) => 
+        `- ${e.slug} (${e.name}, ${e.category}, ${e.difficulty})`
+      ).join("\n");
+
+      // Build the prompt for Gemini
+      const templatePrompt = `You are a workout template generator. Generate a workout template as JSON based on the user's requirements.
+
+AVAILABLE EXERCISES (use ONLY these exerciseSlug values):
+${exerciseList}
+
+REQUIREMENTS:
+- Goal: ${goal}
+- Fitness Level: ${level}
+${focusAreas && focusAreas.length > 0 ? `- Focus Areas: ${focusAreas.join(", ")}` : ""}
+
+INSTRUCTIONS:
+1. Select 4-8 exercises that match the goal, level, and focus areas
+2. Use ONLY exerciseSlug values from the list above
+3. Assign appropriate sets (2-5), reps (5-20), and rest seconds (30-120)
+4. Choose the most appropriate category based on exercises selected
+5. Return ONLY valid JSON, no prose or explanations
+
+OUTPUT FORMAT (strict JSON, no markdown):
+{
+  "name": "Template Name",
+  "description": "Brief description of the workout",
+  "category": "push" | "pull" | "legs" | "core" | "full_body",
+  "difficulty": "beginner" | "intermediate" | "advanced",
+  "exercises": [
+    {
+      "exerciseSlug": "exercise-slug-from-list",
+      "sets": 3,
+      "reps": 10,
+      "restSeconds": 60,
+      "notes": "Optional form tip"
+    }
+  ]
+}`;
+
+      // Call Gemini API
+      const result = await geminiModel.generateContent({
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: templatePrompt }]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.3, // Lower temperature for more deterministic JSON
+          maxOutputTokens: 2048,
+        }
+      });
+
+      const responseText = result.response.text();
+      
+      // Clean the response - remove markdown code blocks if present
+      let jsonText = responseText.trim();
+      if (jsonText.startsWith("```json")) {
+        jsonText = jsonText.slice(7);
+      } else if (jsonText.startsWith("```")) {
+        jsonText = jsonText.slice(3);
+      }
+      if (jsonText.endsWith("```")) {
+        jsonText = jsonText.slice(0, -3);
+      }
+      jsonText = jsonText.trim();
+
+      // Parse and validate JSON
+      let generatedTemplate: GeneratedTemplate;
+      try {
+        const parsed = JSON.parse(jsonText);
+        const validated = generatedTemplateSchema.safeParse(parsed);
+        
+        if (!validated.success) {
+          console.error("Template validation failed:", validated.error);
+          return res.status(500).json({ 
+            error: "AI generated an invalid template structure",
+            details: validated.error.errors
+          });
+        }
+        
+        generatedTemplate = validated.data;
+      } catch (parseError) {
+        console.error("JSON parse error:", parseError, "Raw:", jsonText);
+        return res.status(500).json({ error: "AI response was not valid JSON" });
+      }
+
+      // Verify all exercise slugs exist and get their IDs
+      const exerciseSlugToId = new Map<string, string>();
+      for (const ex of exercisesResult) {
+        exerciseSlugToId.set(ex.slug, ex.id);
+      }
+
+      const invalidSlugs: string[] = [];
+      for (const ex of generatedTemplate.exercises) {
+        if (!exerciseSlugToId.has(ex.exerciseSlug)) {
+          invalidSlugs.push(ex.exerciseSlug);
+        }
+      }
+
+      if (invalidSlugs.length > 0) {
+        return res.status(500).json({ 
+          error: "AI used invalid exercise slugs",
+          invalidSlugs 
+        });
+      }
+
+      // Save template to database
+      const finalName = customName || generatedTemplate.name;
+      
+      // Insert workout_templates
+      const templateResult = await sql`
+        INSERT INTO workout_templates (user_id, name, description, difficulty, category, is_public)
+        VALUES (${userId}, ${finalName}, ${generatedTemplate.description}, ${generatedTemplate.difficulty}, ${generatedTemplate.category}, false)
+        RETURNING id
+      `;
+      
+      const templateId = templateResult[0].id;
+
+      // Insert workout_template_exercises
+      for (let i = 0; i < generatedTemplate.exercises.length; i++) {
+        const ex = generatedTemplate.exercises[i];
+        const exerciseId = exerciseSlugToId.get(ex.exerciseSlug)!;
+        const notes = ex.notes || null;
+        
+        await sql`
+          INSERT INTO workout_template_exercises (template_id, exercise_id, order_index, default_sets, default_reps, default_rest_seconds, notes)
+          VALUES (${templateId}, ${exerciseId}, ${i}, ${ex.sets}, ${ex.reps}, ${ex.restSeconds}, ${notes})
+        `;
+      }
+
+      res.json({
+        templateId,
+        templateName: finalName,
+      });
+
+    } catch (error: any) {
+      console.error("Generate template error:", error);
+      
+      if (error.message?.includes("API key")) {
+        return res.status(503).json({ error: "AI Coach configuration error" });
+      }
+      
+      res.status(500).json({ error: "Failed to generate template" });
     }
   });
 }
