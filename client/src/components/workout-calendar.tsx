@@ -4,9 +4,7 @@ import { cn } from "@/lib/utils";
 import { 
   ChevronLeft, 
   ChevronRight, 
-  Dumbbell,
-  Circle,
-  Flame
+  Dumbbell
 } from "lucide-react";
 import { 
   format, 
@@ -161,25 +159,13 @@ export function WorkoutCalendar({
                 {format(day, "d")}
               </span>
 
-              {/* Workout Indicator */}
+              {/* Workout Indicator - Show single indicator per day regardless of workout count */}
               {hasWorkout && isCurrentMonth && (
                 <div className={cn(
                   "flex items-center gap-0.5 mt-0.5 sm:mt-1",
                   isSelected ? "text-primary-foreground" : "text-primary"
                 )}>
-                  {workoutCount === 1 ? (
-                    <Dumbbell className="h-3 w-3 sm:h-4 sm:w-4" />
-                  ) : workoutCount === 2 ? (
-                    <>
-                      <Circle className="h-2 w-2 sm:h-2.5 sm:w-2.5 fill-current" />
-                      <Circle className="h-2 w-2 sm:h-2.5 sm:w-2.5 fill-current" />
-                    </>
-                  ) : (
-                    <div className="flex items-center gap-0.5">
-                      <Flame className="h-3 w-3 sm:h-4 sm:w-4" />
-                      <span className="text-[10px] sm:text-xs font-bold">{workoutCount}</span>
-                    </div>
-                  )}
+                  <Dumbbell className="h-3 w-3 sm:h-4 sm:w-4" />
                 </div>
               )}
 

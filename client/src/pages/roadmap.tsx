@@ -1,6 +1,5 @@
 import { cn } from "@/lib/utils";
-import { CheckCircle2, Lock, PlayCircle } from "lucide-react";
-import mapBg from "@assets/generated_images/dark_abstract_topographic_map_background.png";
+import { CheckCircle2, Lock } from "lucide-react";
 
 const levels = [
   {
@@ -42,18 +41,8 @@ const levels = [
 
 export default function Roadmap() {
   return (
-    <div className="relative min-h-screen pb-20">
-       {/* Background Texture */}
-       <div 
-        className="fixed inset-0 z-0 opacity-20 pointer-events-none" 
-        style={{ 
-          backgroundImage: `url(${mapBg})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center'
-        }} 
-      />
-
-      <div className="relative z-10 space-y-8">
+    <div className="relative pb-20">
+      <div className="space-y-8">
         <div className="text-center mb-12">
           <h1 className="text-4xl md:text-6xl font-heading font-bold uppercase tracking-tight mb-2">
             The <span className="text-primary">Path</span>
