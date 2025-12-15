@@ -133,13 +133,12 @@ export default function TemplatesPage() {
     try {
       const result = await startWorkout.mutateAsync(templateId);
       setPreviewTemplateId(null); // Close preview if open
-      // Store the workout ID in sessionStorage so the workout page can load it
-      sessionStorage.setItem('activeWorkoutId', String(result.id));
       toast({
         title: "Workout started!",
         description: "Your workout has been created from the template.",
       });
-      navigate(`/workout`);
+      // Navigate directly to the workout session page with the ID
+      navigate(`/workout/${result.id}`);
     } catch (error: any) {
       console.error("Start workout error:", error);
       toast({

@@ -36,8 +36,12 @@ export const workouts = pgTable("workouts", {
   userId: varchar("user_id").notNull().references(() => users.id),
   name: text("name").notNull(),
   date: timestamp("date").notNull().defaultNow(),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
   duration: integer("duration"),
+  durationSeconds: integer("duration_seconds"),
   totalVolume: integer("total_volume").notNull().default(0),
+  status: text("status").default("in_progress"),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
